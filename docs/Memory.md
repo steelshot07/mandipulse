@@ -2,12 +2,18 @@
 
 Running log of decisions, gotchas and project state. Update at the end of every session (Rules.md).
 
-## Current state (2026-11-26)
-- **Phase 0 (setup) — done.** Backend/frontend scaffolds, CI, Supabase connected.
-- **Phase 1 (schema + backfill) — done.** Migration `0001` applied to Supabase; backfill loaded
-  44,404 daily price reports (2019-01-01 → 2026-11-25) for 17 market × commodity series.
-  Re-run inserts 0. 4 rows quarantined per run (zero min or max price).
-- **Next:** Phase 2 — `ingestion/run_daily.py` + `ingest.yml` cron, `GET /status/ingestion`.
+## Current state (2026-11-27)
+- **Phase 0 (setup) — done.**
+- **Phase 1 (schema + backfill) — done.** 44,404 daily price reports from 2019-01-01 for 17
+  market × commodity series. CI ran the database test (33 passed).
+- **Phase 2 (daily ingestion) — code done, waiting on the live check.**
+  - `python -m ingestion.run_daily` re-reads the last 10 days. Verified against Supabase:
+    re-runs insert 0, and a failed run is marked `failed` with the error and exits 1.
+  - `GET /status/ingestion` returns the last 14 runs and per-series freshness.
+  - `ingest.yml` runs at 20:00 IST. It needs repo secrets `DATABASE_URL` and
+    `DATAGOV_API_KEY`.
+  - **Still to do:** 3 consecutive successful scheduled runs on GitHub Actions.
+- **Next:** Phase 3 — cleaning views and analytics.
 
 ## Decisions
 - **Price source is data.gov.in, not CEDA.** CEDA only has monthly data. Resource
@@ -31,6 +37,14 @@ Running log of decisions, gotchas and project state. Update at the end of every 
   gap is 1.3%. Prices are part of the unique key; `v_prices_weekly` must take the median.
   Identical reports (old/new name overlap) are stored once.
 - **Backfill start: 2019-01-01.**
+- **Daily job re-reads 10 days, not 1.** Mandis report late. Re-reading costs one API page
+  per query and is idempotent.
+- **The cron never runs migrations.** Run `alembic upgrade head` by hand before merging
+  schema changes.
+- **Quarantine is deduplicated** on (source, reason, payload). A bad source row seen again in
+  the 10-day window is counted in `rows_quarantined` but not stored twice.
+- **`/status/ingestion` never shows the stored `error` text**, only the status. Errors can
+  contain SQL or internals.
 - **API access model:** public GETs are rate-limited per IP. Anything that writes, triggers
   a job or costs money needs `X-API-Key` (Rules.md §6).
 - **RLS is enabled with no policies on every table**, so Supabase's public Data API can't
@@ -50,6 +64,10 @@ Running log of decisions, gotchas and project state. Update at the end of every 
 - TypeScript is pinned to ~6.0 because typescript-eslint doesn't support TS 7 yet.
 - DB tests (`-m db`) run only against `TEST_DATABASE_URL` (the CI Postgres service). Never
   point them at Supabase: the test downgrades the schema.
+- `INSERT … SELECT` with bind parameters needs explicit `CAST(:x AS type)` on psycopg 3.
+  Otherwise Postgres fails with "inconsistent types deduced for parameter".
+- "Today" is the IST date (`app.core.time.today_ist`). It uses a fixed +05:30 offset, so no
+  tzdata package is needed on Windows.
 
 ## Data notes
 - Lasalgaon (Vinchur) starts in May 2020. Madanapalle is sparse before 2023 (38 rows in

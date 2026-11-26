@@ -1,4 +1,4 @@
-"""Backfill row handling (pure) and an idempotent end-to-end run (needs Postgres)."""
+"""Loader row handling (pure) plus end-to-end runs against Postgres (db-marked)."""
 
 import os
 from collections.abc import Iterator
@@ -8,10 +8,13 @@ from typing import Any
 
 import pytest
 from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session
 
 from app.core.markets import COMMODITIES, MARKETS
 from app.db.models import IngestionRun, QuarantineRow, RawPrice
-from ingestion.backfill import RowCollector, run_backfill
+from app.services.status import get_ingestion_status
+from ingestion.datagov_client import DataGovError
+from ingestion.loader import RowCollector, run_ingestion
 
 ONION = next(c for c in COMMODITIES if c.slug == "onion")
 POTATO = next(c for c in COMMODITIES if c.slug == "potato")
@@ -91,13 +94,23 @@ def test_rows_before_since_are_skipped_silently() -> None:
 # --- End-to-end against a disposable Postgres (CI service container) ---
 
 TEST_DB = os.environ.get("TEST_DATABASE_URL")
+SINCE = date(2025, 11, 1)
 
 
 class FakeSource:
-    def __init__(self, records: list[dict[str, Any]]) -> None:
-        self.records = records
+    """Serves records matching the query filters; can fail on the Nth query."""
 
-    def iter_records(self, filters: dict[str, str], *, since: date) -> Iterator[dict[str, Any]]:
+    def __init__(self, records: list[dict[str, Any]], fail_on_query: int | None = None) -> None:
+        self.records = records
+        self.fail_on_query = fail_on_query
+        self.queries = 0
+
+    def iter_records(
+        self, filters: dict[str, str], *, since: date, page_size: int
+    ) -> Iterator[dict[str, Any]]:
+        self.queries += 1
+        if self.queries == self.fail_on_query:
+            raise DataGovError("data.gov.in failed after 4 attempts: HTTP 502")
         for r in self.records:
             if all(r.get(k) == v for k, v in filters.items()):
                 yield r
@@ -135,16 +148,60 @@ def test_backfill_is_idempotent(migrated_db: str) -> None:
         ]
     )
 
-    first = run_backfill(engine, source)
+    first = run_ingestion(engine, source, since=SINCE, job="backfill")
     assert (first.inserted, first.duplicates, first.quarantined) == (2, 1, 1)
 
-    second = run_backfill(engine, source)
+    second = run_ingestion(engine, source, since=SINCE, job="ingest_daily")
     assert second.inserted == 0
 
     with engine.connect() as conn:
         assert conn.scalar(select(func.count()).select_from(RawPrice)) == 2
         reasons = conn.scalars(select(QuarantineRow.reason)).all()
-        assert reasons and all(reasons)
+        assert len(reasons) == 1 and reasons[0]  # seen twice, stored once, with a reason
         statuses = conn.scalars(select(IngestionRun.status)).all()
         assert statuses == ["success", "success"]
+    engine.dispose()
+
+
+@pytest.mark.db
+def test_failed_run_is_marked_failed_and_keeps_data_consistent(migrated_db: str) -> None:
+    engine = create_engine(migrated_db)
+    records = [
+        row(),  # first query: Onion / Maharashtra / Nashik
+        row(State="Madhya Pradesh", District="Mandsaur", Market="Mandsaur"),  # second query
+    ]
+
+    with pytest.raises(DataGovError):
+        run_ingestion(engine, FakeSource(records, fail_on_query=2), since=SINCE, job="ingest_daily")
+
+    with engine.connect() as conn:
+        run = conn.execute(select(IngestionRun.status, IngestionRun.error)).one()
+        assert run.status == "failed" and run.error and "HTTP 502" in run.error
+        # The query finished before the failure is committed whole; nothing after it is.
+        assert conn.scalar(select(func.count()).select_from(RawPrice)) == 1
+
+    # The next run fills the gap without duplicating what the failed run wrote.
+    retry = run_ingestion(engine, FakeSource(records), since=SINCE, job="ingest_daily")
+    assert (retry.inserted, retry.duplicates) == (1, 0)
+    with engine.connect() as conn:
+        assert conn.scalar(select(func.count()).select_from(RawPrice)) == 2
+    engine.dispose()
+
+
+@pytest.mark.db
+def test_status_reports_runs_and_freshness(migrated_db: str) -> None:
+    engine = create_engine(migrated_db)
+    run_ingestion(engine, FakeSource([row()]), since=SINCE, job="ingest_daily")
+
+    with Session(engine) as session:
+        status = get_ingestion_status(session, today=date(2025, 11, 13))
+
+    assert [r.status for r in status.runs] == ["success"]
+    assert status.last_success_at is not None
+    by_key = {(s.commodity, s.market): s for s in status.series}
+    lasalgaon = by_key[("onion", "lasalgaon")]
+    assert (lasalgaon.last_arrival_date, lasalgaon.days_since) == (date(2025, 11, 3), 10)
+    assert lasalgaon.stale  # 10 days > 7
+    assert by_key[("tomato", "kolar")].last_arrival_date is None
+    assert len(status.series) == sum(len(m.commodities) for m in MARKETS)
     engine.dispose()

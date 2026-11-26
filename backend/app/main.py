@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import health
+from app.api.routes import health, status
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.security import RateLimiter, install_security
@@ -24,6 +24,7 @@ def create_app(limiter: RateLimiter | None = None) -> FastAPI:
         allow_headers=["Content-Type"],
     )
     app.include_router(health.router)
+    app.include_router(status.router)
     return app
 
 

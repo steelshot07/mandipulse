@@ -131,10 +131,12 @@ mandipulse/
 │   │   ├── api/routes/      # prices.py, forecast.py, analytics.py, accuracy.py, status.py, meta.py
 │   │   └── services/        # query logic used by routes
 │   ├── ingestion/
-│   │   ├── datagov_client.py    # shared by backfill and daily pull
-│   │   ├── backfill.py          # one-time historical load from data.gov.in
-│   │   ├── imd_rainfall.py
-│   │   └── run_daily.py     # entry point
+│   │   ├── datagov_client.py    # HTTP client (UA, retries, pagination)
+│   │   ├── records.py           # per-row Pydantic validation
+│   │   ├── loader.py            # shared: match aliases, validate, quarantine, insert, log run
+│   │   ├── backfill.py          # CLI: one-time historical load (since 2019-01-01)
+│   │   ├── run_daily.py         # CLI: daily job, re-reads the last 10 days
+│   │   └── imd_rainfall.py
 │   ├── pipeline/
 │   │   ├── features.py
 │   │   ├── baselines.py

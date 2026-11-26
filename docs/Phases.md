@@ -36,7 +36,7 @@ Build one phase at a time. Each phase ends with acceptance checks that must pass
 
 ## Phase 2 — Live daily ingestion (2–3 days)
 **Build**
-- `ingestion/run_daily.py` entry point reusing `datagov_client.py` from Phase 1; logs to `ingestion_runs`.
+- `ingestion/run_daily.py` entry point reusing the Phase 1 client and loader. Re-reads the last 10 days (late reports) and logs to `ingestion_runs`.
 - `ingest.yml` GitHub Actions cron (daily 20:00 IST).
 - `GET /status/ingestion`.
 
