@@ -22,8 +22,9 @@ Build one phase at a time. Each phase ends with acceptance checks that must pass
 ## Phase 1 — Schema + historical backfill (3–5 days)
 **Build**
 - Alembic migration for `markets`, `commodities`, `raw_prices`, `ingestion_runs`, `quarantine_rows`.
-- `ingestion/ceda_backfill.py`: load downloaded CEDA files for onion/tomato/potato into `raw_prices`.
-- Confirm and lock the v1 market list in config after inspecting real market names.
+- `ingestion/datagov_client.py`: typed client for the data.gov.in resource (custom User-Agent, timeout, retries with backoff, pagination). See `Architecture.md` §6a.
+- `ingestion/backfill.py`: load daily history for onion/tomato/potato in the v1 markets from data.gov.in into `raw_prices`, logged in `ingestion_runs`.
+- Confirm and lock the v1 market list **with market-name aliases** in config after inspecting real market names.
 - Create `docs/Memory.md`.
 
 **Done when**
@@ -35,8 +36,7 @@ Build one phase at a time. Each phase ends with acceptance checks that must pass
 
 ## Phase 2 — Live daily ingestion (2–3 days)
 **Build**
-- `ingestion/datagov_client.py` with timeout, retries, pagination.
-- `ingestion/run_daily.py` entry point; logs to `ingestion_runs`.
+- `ingestion/run_daily.py` entry point reusing `datagov_client.py` from Phase 1; logs to `ingestion_runs`.
 - `ingest.yml` GitHub Actions cron (daily 20:00 IST).
 - `GET /status/ingestion`.
 

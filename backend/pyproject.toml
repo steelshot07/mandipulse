@@ -15,12 +15,12 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.13",
     "psycopg[binary]>=3.2",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.2",
-    "httpx>=0.27",
     "ruff>=0.5",
     "black>=24.4",
     "mypy>=1.10",
@@ -48,3 +48,4 @@ plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["db: needs a disposable Postgres at TEST_DATABASE_URL (skipped otherwise)"]

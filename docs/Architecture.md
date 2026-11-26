@@ -3,9 +3,9 @@
 ## 1. High-level flow
 
 ```
- data.gov.in API ─┐
- CEDA backfill ───┼─► [Ingestion jobs] ─► raw tables (Postgres)
- IMD rainfall ────┘                              │
+ data.gov.in API ─┬─ backfill (one-time) ─┐
+                  └─ daily pull ─────────┼─► [Ingestion jobs] ─► raw tables (Postgres)
+ IMD rainfall ───────────────────────────┘                              │
                                                  ▼
                                    [SQL cleaning views]  ← dedupe, outliers, weekly agg
                                                  │
@@ -60,16 +60,18 @@ Jobs run on GitHub Actions cron (free) and call Python entry points directly; th
 ## 3. Data model (core tables)
 
 ```
-markets            (id, state, district, market_name, lat, lon, census_district)
-commodities        (id, name, unit)                         -- unit = ₹/quintal
+markets            (id, slug UNIQUE, market_name, state, district, lat, lon,
+                    census_district)              -- synced from app/core/markets.py
+commodities        (id, slug UNIQUE, name, unit)  -- unit = ₹/quintal
 raw_prices         (id, source, market_id, commodity_id, variety, grade,
                     arrival_date, min_price, max_price, modal_price,
-                    arrivals_tonnes NULL, ingested_at,
-                    UNIQUE(source, market_id, commodity_id, variety, arrival_date))
+                    arrivals_tonnes NULL, source_market_name, ingested_at,
+                    UNIQUE(source, market_id, commodity_id, variety, grade,
+                           arrival_date, min_price, max_price, modal_price))
 rainfall_daily     (district, date, rain_mm, normal_mm)
 ingestion_runs     (id, job, started_at, finished_at, status, rows_fetched,
-                    rows_inserted, error)
-quarantine_rows    (id, source, payload JSONB, reason, created_at)
+                    rows_inserted, rows_quarantined, error)
+quarantine_rows    (id, ingestion_run_id NULL, source, payload JSONB, reason, created_at)
 features_weekly    (market_id, commodity_id, week_start, feature columns…)
 model_runs         (id, trained_at, model_type, params JSONB, train_end_week,
                     backtest_metrics JSONB)
@@ -78,6 +80,14 @@ forecasts          (id, model_run_id, market_id, commodity_id, made_on_week,
 forecast_accuracy  (forecast_id, actual_price, abs_pct_error, evaluated_at)
 subscriptions      (id, telegram_chat_id, commodity_id, market_id, created_at)
 ```
+
+Notes on `raw_prices`:
+- One row per **distinct report**. Since 2024 the source sometimes publishes 2+ reports with
+  different prices for the same market/variety/grade/day (separate lots or revisions), so
+  the prices are part of the unique key. `v_prices_weekly` takes the median, so this is safe.
+- Identical reports (e.g. the same row under an old and a new market name during a rename)
+  are stored once. `source_market_name` keeps the name as published.
+- Row Level Security is enabled with no policies on every table (Rules.md §6).
 
 SQL views (in `sql/views/`):
 - `v_prices_clean` — dedupe, drop/flag outliers (modal outside [min, max] or > 5× rolling median).
@@ -121,8 +131,8 @@ mandipulse/
 │   │   ├── api/routes/      # prices.py, forecast.py, analytics.py, accuracy.py, status.py, meta.py
 │   │   └── services/        # query logic used by routes
 │   ├── ingestion/
-│   │   ├── datagov_client.py
-│   │   ├── ceda_backfill.py
+│   │   ├── datagov_client.py    # shared by backfill and daily pull
+│   │   ├── backfill.py          # one-time historical load from data.gov.in
 │   │   ├── imd_rainfall.py
 │   │   └── run_daily.py     # entry point
 │   ├── pipeline/
@@ -159,10 +169,25 @@ mandipulse/
 - **Validation:** walk-forward (expanding window), never random split. Backtest over the last 52 weeks.
 - **Baselines:** naive (last week), seasonal naive (same week last year), ETS from statsforecast.
 - **Main model:** one global LightGBM per commodity across markets, quantile objective at 0.1 / 0.5 / 0.9, one model per horizon (direct strategy).
-- **Features:** price lags (1–8, 52 weeks), rolling mean/std, arrivals lags (if available), rainfall deviation lags (2–8 weeks), week-of-year, festival flags (Diwali, etc.), market ID as category.
+- **Features:** price lags (1–8, 52 weeks), rolling mean/std, arrivals lags (not in the data.gov.in source; skipped unless another source is added), rainfall deviation lags (2–8 weeks), week-of-year, festival flags (Diwali, etc.), market ID as category.
 - **Leakage guard:** every feature for target week *t + h* must use only data available at the end of week *t*.
 - **Signal:** Rising if P50 > current × 1.10, Falling if < current × 0.90, else Stable.
 - **Metrics:** MAPE, MASE (vs seasonal naive), P10–P90 coverage.
+
+## 6a. Price data source (data.gov.in)
+
+Verified by probing on 2026-11-26.
+
+- **Resource:** "Variety-wise Daily Market Prices Data of Commodity", id `35985678-0d79-46b4-9ed6-6f13308a1d24` (Directorate of Marketing & Inspection). ~83M rows, daily from 2002, updated daily. Used for both the one-time backfill and the daily pull.
+- **Fields:** `State, District, Market, Commodity, Commodity_Code, Variety, Grade, Arrival_Date (dd/mm/yyyy), Min_Price, Max_Price, Modal_Price`. Prices in ₹/quintal. No arrivals quantity.
+- **Filters:** `filters[State|District|Commodity|Arrival_Date]` (exact match), `sort[Arrival_Date]=asc|desc`, `offset`, `limit`.
+- **Quirks:**
+  - Market names drift over time and may have trailing spaces (`Lasalgaon` → `Lasalgaon APMC` → `APMC Lasalgaon `). Each v1 market is defined once in config with all its aliases; ingestion maps aliases → `market_id`. Unmapped names in v1 districts are logged for review.
+  - Districts get reassigned (Madanapalle moved from Chittoor to Annamayya in Nov 2025), so series are keyed on market, not district.
+  - Variety and grade labels change (`Other` → `Red`/`Unhali`; `FAQ` → `Local`). Several varieties per market per day are common.
+  - Old rows return prices/codes as strings, new rows as numbers: parse and validate per row.
+  - Some dates are missing (e.g. festival closures).
+  - The API returns 502 for Python's default `User-Agent`; always send a custom one. Rate limited (429) — the client backs off. The public sample key returns only 10 rows/call; a personal key is required.
 
 ## 7. Environments & config
 

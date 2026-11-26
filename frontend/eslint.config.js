@@ -23,6 +23,25 @@ export default defineConfig([
     },
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',
+      // Security (Rules.md §6): never render external text as HTML.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
+          message: 'Render text with {value} instead; dangerouslySetInnerHTML allows XSS.',
+        },
+        {
+          selector:
+            'AssignmentExpression > MemberExpression.left[property.name=/^(innerHTML|outerHTML)$/]',
+          message: 'Use textContent instead of innerHTML/outerHTML to avoid XSS.',
+        },
+        {
+          selector: "CallExpression[callee.property.name='insertAdjacentHTML']",
+          message: 'insertAdjacentHTML allows XSS; build DOM nodes or use React instead.',
+        },
+      ],
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
     },
   },
 ])

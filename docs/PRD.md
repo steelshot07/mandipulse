@@ -31,7 +31,7 @@ Secondary goal: serve as a portfolio project for SDE, ML engineer, and data anal
 ## 4. Scope (v1)
 
 - **Commodities:** Onion, Tomato, Potato.
-- **Markets:** ~10 major mandis per commodity (initial candidates: Lasalgaon, Pimpalgaon, Indore, Bengaluru for onion; Kolar, Madanapalle, Azadpur for tomato; Agra, Azadpur, Kolkata for potato). Verify exact market names in the data before fixing the list.
+- **Markets:** ~10 major mandis per commodity (initial candidates: Lasalgaon, Pimpalgaon, Indore, Bengaluru for onion; Kolar, Madanapalle, Azadpur for tomato; Agra, Azadpur, Kolkata for potato). Verify exact market names in the data before fixing the list. Source market names change over time (e.g. `Lasalgaon` → `Lasalgaon APMC` → `APMC Lasalgaon`), so each v1 market is defined by a list of aliases.
 - **Granularity:** Data stored daily, forecasts made weekly (weekly modal price, ₹/quintal).
 - **Horizon:** 1, 2, 3 and 4 weeks ahead.
 - **Language:** English UI in v1; layout must allow Hindi later.
@@ -46,7 +46,7 @@ Secondary goal: serve as a portfolio project for SDE, ML engineer, and data anal
 
 ### F1. Data ingestion (must have)
 - Daily pull from the data.gov.in mandi price API.
-- One-time historical backfill from CEDA (Ashoka) Agmarknet downloads.
+- One-time historical backfill from the same data.gov.in resource ("Variety-wise Daily Market Prices Data of Commodity", daily data from 2002). CEDA (Ashoka) was considered but only offers monthly/yearly aggregates.
 - Daily/annual rainfall from IMD gridded data, aggregated to district level.
 - Ingestion log (rows fetched, rows inserted, failures) visible on a status page.
 
@@ -96,6 +96,6 @@ Secondary goal: serve as a portfolio project for SDE, ML engineer, and data anal
 
 ## 8. Open questions
 
-- Exact data.gov.in resource and fields available (check whether arrivals quantity is included or only prices; CEDA has arrivals).
+- ~~Exact data.gov.in resource and fields available.~~ Resolved 2026-11-26: resource `35985678-0d79-46b4-9ed6-6f13308a1d24` has prices only (min/max/modal), **no arrivals quantity**. Arrivals-based features are dropped unless another source is found.
 - Transport cost assumption for F6.
 - Whether to add a Power BI / Metabase analytics view alongside the React app.

@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     allowed_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
     log_level: str = "INFO"
+    rate_limit_per_minute: int = 120
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
@@ -26,6 +27,13 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @model_validator(mode="after")
+    def _no_wildcard_cors_in_production(self) -> "Settings":
+        """Refuse to start in production with CORS open to every origin."""
+        if self.env == "production" and "*" in self.allowed_origins:
+            raise ValueError("ALLOWED_ORIGINS must list real origins in production, not '*'")
+        return self
 
     @property
     def sqlalchemy_url(self) -> str:
