@@ -12,7 +12,12 @@ Running log of decisions, gotchas and project state. Update at the end of every 
   - `GET /status/ingestion` returns the last 14 runs and per-series freshness.
   - `ingest.yml` runs at 20:00 IST. It needs repo secrets `DATABASE_URL` and
     `DATAGOV_API_KEY`.
-  - **Still to do:** 3 consecutive successful scheduled runs on GitHub Actions.
+  - **Moved to AWS Lambda in ap-south-1** because GitHub Actions can't reach data.gov.in
+    (geo-block, Challenges.md #1). Stack: `infra/aws/ingest-stack.yaml`, deployed by the user
+    with `infra/aws/deploy_stack.ps1`. Code ships via `deploy-ingest.yml` (OIDC) after CI.
+    The GitHub cron `ingest.yml` is removed.
+  - **Still to do:** deploy the stack, set repo variable `AWS_DEPLOY_ROLE_ARN`, run the first
+    deploy, confirm Mumbai reaches data.gov.in, then 3 consecutive scheduled runs.
 - **Next:** Phase 3 — cleaning views and analytics.
 
 ## Decisions
@@ -51,7 +56,12 @@ Running log of decisions, gotchas and project state. Update at the end of every 
   reach them. The backend connects as owner.
 
 ## Gotchas
+- The local AWS CLI default profile is `attendance-demo` (another project). It can't use
+  CloudFormation; deploy with a separate admin profile.
 - data.gov.in returns **502 for Python's default User-Agent**. Always send our UA.
+- **data.gov.in only accepts connections from Indian IPs.** GitHub-hosted runners can't reach
+  it (verified 2026-11-27 from ~20 countries). The daily job must run from India. See
+  docs/Challenges.md #1.
 - data.gov.in URLs contain the API key. Never log them; httpx/httpcore loggers are pinned to
   WARNING.
 - Prices are strings in old rows and numbers in new ones. Names have trailing spaces.

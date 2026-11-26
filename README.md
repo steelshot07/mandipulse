@@ -27,9 +27,10 @@ python -m ingestion.backfill      # one-time history since 2019 (~2 min)
 python -m ingestion.run_daily     # latest 10 days; idempotent
 ```
 
-The daily job runs on GitHub Actions at 20:00 IST (`.github/workflows/ingest.yml`). It needs the
-repo secrets `DATABASE_URL` and `DATAGOV_API_KEY`, and can also be started by hand from the
-Actions tab ("Daily ingestion" → "Run workflow"). Run status: `GET /status/ingestion`.
+The daily job runs as an AWS Lambda in Mumbai at 20:00 IST, because data.gov.in only accepts
+Indian IPs (see `docs/Challenges.md`). One-time setup: `.\infraws\deploy_stack.ps1`, then set
+repo variable `AWS_DEPLOY_ROLE_ARN`. After that, code changes deploy automatically after CI
+(`.github/workflows/deploy-ingest.yml`). Run status: `GET /status/ingestion`.
 
 **Frontend** (Node 22):
 

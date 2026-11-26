@@ -37,11 +37,11 @@ Build one phase at a time. Each phase ends with acceptance checks that must pass
 ## Phase 2 — Live daily ingestion (2–3 days)
 **Build**
 - `ingestion/run_daily.py` entry point reusing the Phase 1 client and loader. Re-reads the last 10 days (late reports) and logs to `ingestion_runs`.
-- `ingest.yml` GitHub Actions cron (daily 20:00 IST).
+- Daily schedule at 20:00 IST. Planned as a GitHub Actions cron, but moved to AWS Lambda in Mumbai + EventBridge Scheduler because data.gov.in geo-blocks non-Indian IPs (`infra/aws/`, Challenges.md #1).
 - `GET /status/ingestion`.
 
 **Done when**
-- Job has run successfully on GitHub Actions for 3 consecutive days.
+- Job has run successfully on its schedule for 3 consecutive days.
 - Manually re-running the job on the same day adds no duplicates.
 - A simulated API failure marks the run failed without corrupting data.
 

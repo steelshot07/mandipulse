@@ -34,7 +34,7 @@ Scheduled jobs:
 | `evaluate` | Weekly Mon 07:30 | Score matured forecasts against actuals |
 | `send_alerts` | Weekly Mon 08:00 | Telegram digests + threshold alerts |
 
-Jobs run on GitHub Actions cron (free) and call Python entry points directly; they don't go through the API.
+Jobs call Python entry points directly; they don't go through the API. `ingest_daily` runs as an **AWS Lambda in ap-south-1 (Mumbai)** triggered by EventBridge Scheduler, because data.gov.in only accepts Indian IPs (docs/Challenges.md #1). Infra: `infra/aws/ingest-stack.yaml`; code deploys from GitHub Actions via OIDC after CI passes. Jobs that don't call data.gov.in run on GitHub Actions cron (free).
 
 ## 2. Tech stack
 

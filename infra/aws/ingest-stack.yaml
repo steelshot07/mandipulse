@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  MandiPulse daily ingestion in ap-south-1 (Mumbai). data.gov.in only accepts Indian IPs, so
+  the job runs as a Lambda here instead of on GitHub-hosted runners (docs/Challenges.md #1).
+  Deploy with infra/aws/deploy_stack.ps1; code updates ship via .github/workflows/deploy-ingest.yml.
+
+Parameters:
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Description: Supabase session-pooler URL (same as DATABASE_URL in backend/.env)
+  DatagovApiKey:
+    Type: String
+    NoEcho: true
+    Description: data.gov.in API key
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Email to notify when a run fails (leave empty for no alerts)
+  GitHubRepo:
+    Type: String
+    Default: steelshot07/mandipulse
+    Description: owner/name of the repo allowed to deploy code (main branch only)
+  CreateGitHubOidcProvider:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+    Description: Set to false if this AWS account already has the GitHub OIDC provider
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+  CreateOidc: !Equals [!Ref CreateGitHubOidcProvider, "true"]
+
+Resources:
+  # ---------- The job ----------
+  IngestLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/mandipulse-ingest-daily
+      RetentionInDays: 30
+
+  IngestRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  IngestFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: IngestLogGroup
+    Properties:
+      FunctionName: mandipulse-ingest-daily
+      Description: Daily data.gov.in mandi price ingestion (re-reads last 10 days, idempotent)
+      Runtime: python3.11
+      Architectures: [x86_64]
+      Handler: ingestion.lambda_handler.handler
+      Role: !GetAtt IngestRole.Arn
+      Timeout: 600
+      MemorySize: 512
+      Environment:
+        Variables:
+          ENV: production
+          LOG_LEVEL: INFO
+          DATABASE_URL: !Ref DatabaseUrl
+          DATAGOV_API_KEY: !Ref DatagovApiKey
+      # Placeholder until the first deploy from GitHub Actions replaces the code.
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              raise RuntimeError("Code not deployed yet: run the 'Deploy ingestion' workflow")
+
+  IngestInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref IngestFunction
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 1 # one retry on failure; safe because ingestion is idempotent
+      MaximumEventAgeInSeconds: 3600
+
+  # ---------- Schedule: 20:00 IST daily ----------
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: scheduler.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref AWS::AccountId }
+      Policies:
+        - PolicyName: invoke-ingest
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt IngestFunction.Arn
+
+  DailySchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: mandipulse-ingest-daily
+      Description: Daily mandi price ingestion at 20:00 IST
+      ScheduleExpression: cron(0 20 * * ? *)
+      ScheduleExpressionTimezone: Asia/Kolkata
+      FlexibleTimeWindow: { Mode: "OFF" }
+      State: ENABLED
+      Target:
+        Arn: !GetAtt IngestFunction.Arn
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: '{"days": 10}'
+        RetryPolicy: { MaximumRetryAttempts: 0 } # retries are handled by IngestInvokeConfig
+
+  # ---------- Failure alerts (optional) ----------
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasAlertEmail
+    Properties:
+      TopicName: mandipulse-ingest-alerts
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlertEmail
+
+  FailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasAlertEmail
+    Properties:
+      AlarmName: mandipulse-ingest-failed
+      AlarmDescription: The daily ingestion Lambda reported an error (see CloudWatch logs)
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref IngestFunction
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  # ---------- GitHub Actions deploys code via OIDC (no long-lived AWS keys) ----------
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidc
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Assumed by GitHub Actions (main branch only) to update the Lambda code
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOidc
+                - !Ref GitHubOidcProvider
+                - !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepo}:ref:refs/heads/main
+      Policies:
+        - PolicyName: update-ingest-code
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:UpdateFunctionCode
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                Resource: !GetAtt IngestFunction.Arn
+
+Outputs:
+  FunctionName:
+    Value: !Ref IngestFunction
+  DeployRoleArn:
+    Description: Save as GitHub repo variable AWS_DEPLOY_ROLE_ARN
+    Value: !GetAtt DeployRole.Arn

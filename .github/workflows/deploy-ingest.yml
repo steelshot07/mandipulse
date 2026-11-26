@@ -1,0 +1,48 @@
+name: Deploy ingestion
+
+# Ships the daily ingestion code to the Lambda in ap-south-1 (Mumbai) after CI passes on main.
+# The job itself runs in AWS (EventBridge Scheduler, 20:00 IST), not here: data.gov.in only
+# accepts Indian IPs (docs/Challenges.md #1). Auth is OIDC, so no AWS keys are stored in GitHub.
+# Needs repo *variable* AWS_DEPLOY_ROLE_ARN (an output of infra/aws/deploy_stack.ps1).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-ingest
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Skipped (not failed) until the stack exists and AWS_DEPLOY_ROLE_ARN is set.
+    if: >-
+      vars.AWS_DEPLOY_ROLE_ARN != '' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Deploy exactly the commit CI tested.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build package
+        run: bash infra/aws/build_lambda.sh
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+      - name: Update Lambda code
+        run: |
+          aws lambda update-function-code --function-name mandipulse-ingest-daily \
+            --zip-file fileb://dist/ingest-lambda.zip --query 'LastModified' --output text
+          aws lambda wait function-updated --function-name mandipulse-ingest-daily
