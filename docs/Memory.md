@@ -16,8 +16,11 @@ Running log of decisions, gotchas and project state. Update at the end of every 
     (geo-block, Challenges.md #1). Stack: `infra/aws/ingest-stack.yaml`, deployed by the user
     with `infra/aws/deploy_stack.ps1`. Code ships via `deploy-ingest.yml` (OIDC) after CI.
     The GitHub cron `ingest.yml` is removed.
-  - **Still to do:** deploy the stack, set repo variable `AWS_DEPLOY_ROLE_ARN`, run the first
-    deploy, confirm Mumbai reaches data.gov.in, then 3 consecutive scheduled runs.
+  - Stack deployed 2026-11-27 with the `mandipulse` CLI profile (IAM user `mandipulse-admin`;
+    deactivate its key when not changing the stack). The first Lambda run from Mumbai succeeded:
+    26 rows inserted in 30 s.
+  - **Still to do:** verify the GitHub OIDC deploy (`Deploy ingestion` workflow) and 3
+    consecutive scheduled runs (from 27 Nov, 20:00 IST).
 - **Next:** Phase 3 — cleaning views and analytics.
 
 ## Decisions

@@ -62,7 +62,14 @@ exited non-zero so GitHub flagged it, and the API key never appeared in the logs
 - *What didn't change:* the ingestion code. The same `run_cli` path runs behind a thin Lambda
   handler, which raises on failure so Lambda and the alarm see it.
 
-**Result.** _Pending: stack deploy + first run from Mumbai._ <!-- Fill in: did Mumbai reach data.gov.in, first run stats, 3-day check. -->
+**Result.** The first invocation from Mumbai (2026-11-27) **reached data.gov.in and
+succeeded**:
+- 21,349 rows fetched, 26 new rows inserted (prices published since the backfill), 1 known-bad
+  row quarantined.
+- 30 s run time and 129 MB peak memory. That's about 30 × 30 s × 0.5 GB ≈ 450 GB-s a month,
+  roughly 0.1% of Lambda's always-free 400,000 GB-s.
+- Logged as `success` in `ingestion_runs`. The schedule is live at 20:00 `Asia/Kolkata`.
+<!-- Fill in after 3 consecutive scheduled runs: dates + rows inserted. -->
 
 **Takeaways.**
 - Check *where* a job runs, not just *whether* the code works. Government and regional APIs
