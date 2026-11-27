@@ -21,6 +21,13 @@ Parameters:
     Type: String
     Default: steelshot07/mandipulse
     Description: owner/name of the repo allowed to deploy code (main branch only)
+  GitHubRepoWithIds:
+    Type: String
+    Default: steelshot07@67476656/mandipulse@1472258455
+    Description: >-
+      Same repo in GitHub's ID-qualified OIDC subject form (owner@ownerId/name@repoId).
+      GitHub now sends this form; the IDs are public and stop a recreated repo with the same
+      name from assuming the role.
   CreateGitHubOidcProvider:
     Type: String
     AllowedValues: ["true", "false"]
@@ -174,7 +181,10 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepo}:ref:refs/heads/main
+                # Main branch only. Both subject formats are accepted (see GitHubRepoWithIds).
+                token.actions.githubusercontent.com:sub:
+                  - !Sub repo:${GitHubRepoWithIds}:ref:refs/heads/main
+                  - !Sub repo:${GitHubRepo}:ref:refs/heads/main
       Policies:
         - PolicyName: update-ingest-code
           PolicyDocument:

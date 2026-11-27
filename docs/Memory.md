@@ -82,6 +82,13 @@ Running log of decisions, gotchas and project state. Update at the end of every 
 - "Today" is the IST date (`app.core.time.today_ist`). It uses a fixed +05:30 offset, so no
   tzdata package is needed on Windows.
 
+- GitHub OIDC tokens now use an **ID-qualified subject**:
+  `repo:steelshot07@67476656/mandipulse@1472258455:ref:refs/heads/main`. A trust policy that
+  only matches `repo:owner/name:...` gives "Not authorized to perform
+  sts:AssumeRoleWithWebIdentity". CloudTrail's `userIdentity.userName` shows the real subject.
+- Stack updates that don't change secrets: `aws cloudformation deploy --profile mandipulse ...`
+  without the NoEcho parameters keeps their previous values.
+
 ## Data notes
 - Lasalgaon (Vinchur) starts in May 2020. Madanapalle is sparse before 2023 (38 rows in
   2022, dense from 2023).
