@@ -29,7 +29,7 @@ Scheduled jobs:
 | Job | Schedule (IST) | What it does |
 |---|---|---|
 | `ingest_daily` | Daily 20:00 | Pull latest mandi prices, upsert raw rows, log run |
-| `ingest_rainfall` | Weekly Mon 06:00 | Update district rainfall series |
+| `ingest_rainfall` | Weekly Mon 06:00 | Re-read last 21 days of IMD real-time rainfall per mandi (GitHub Actions, `rainfall.yml`) |
 | `retrain_and_forecast` | Weekly Mon 07:00 | Rebuild features, retrain, write new forecasts |
 | `evaluate` | Weekly Mon 07:30 | Score matured forecasts against actuals |
 | `send_alerts` | Weekly Mon 08:00 | Telegram digests + threshold alerts |
@@ -45,7 +45,7 @@ Jobs call Python entry points directly; they don't go through the API. `ingest_d
 | DB | PostgreSQL (Supabase or Neon free tier) | SQL views for analytics, free hosting |
 | ORM / migrations | SQLAlchemy 2.0 + Alembic | Standard, versioned schema |
 | Data | pandas, numpy | Cleaning, features |
-| Rainfall | imdlib, geopandas | IMD gridded data → district averages |
+| Rainfall | numpy, scipy (netCDF) | IMD gridded data → ~55 km box around each mandi |
 | Models | statsforecast (baselines), LightGBM (main, quantile) | Fast, strong on tabular lags, gives P10/P50/P90 |
 | Explainability | SHAP (TreeExplainer) | "Why" panel |
 | Scheduling | GitHub Actions cron | Free, logs visible |
@@ -68,7 +68,8 @@ raw_prices         (id, source, market_id, commodity_id, variety, grade,
                     arrivals_tonnes NULL, source_market_name, ingested_at,
                     UNIQUE(source, market_id, commodity_id, variety, grade,
                            arrival_date, min_price, max_price, modal_price))
-rainfall_daily     (district, date, rain_mm, normal_mm)
+rainfall_daily     (market_id, date, rain_mm NULL, source, ingested_at)  -- PK(market_id, date)
+rainfall_normals   (market_id, month_day, normal_mm)  -- 1991-2020 normal; month_day = 1231, 229…
 ingestion_runs     (id, job, started_at, finished_at, status, rows_fetched,
                     rows_inserted, rows_quarantined, error)
 quarantine_rows    (id, ingestion_run_id NULL, source, payload JSONB, reason, created_at)
@@ -89,10 +90,27 @@ Notes on `raw_prices`:
   are stored once. `source_market_name` keeps the name as published.
 - Row Level Security is enabled with no policies on every table (Rules.md §6).
 
-SQL views (in `sql/views/`):
-- `v_prices_clean` — dedupe, drop/flag outliers (modal outside [min, max] or > 5× rolling median).
-- `v_prices_weekly` — weekly modal price per market/commodity (median of daily modal).
-- `v_volatility`, `v_seasonality` — analytics pages.
+Notes on rainfall:
+- IMD 0.25° gridded daily rainfall, averaged over the cells within ±0.5° (~55 km) of each mandi
+  (decided 2026-11-27 instead of district polygons: no shapefiles/geopandas, and new districts
+  like Annamayya don't match Census 2011 boundaries). Mandi coordinates are in `app/core/markets.py`.
+- Final data comes in yearly netCDF files (published the following year); the current year comes
+  from IMD's real-time feed. Final values replace real-time ones, never the other way round.
+- Terminal markets (Azadpur, Kolkata, Bengaluru) are supplied from far away, so local rain is a
+  weak driver there.
+
+Views (created in Alembic migration `0002`, so they're versioned with the schema):
+- `v_prices_clean` (materialized): every report plus `is_outlier` / `outlier_reason`. Outlier =
+  modal outside [min, max], or > 5× / < ⅕ the median modal of the same series over the previous
+  28 days (needs ≥ 5 reports).
+- `v_prices_weekly` (materialized): one row per series per ISO week (Monday) from first to last
+  report. `modal_price` = median of the week's non-outlier daily modal prices (all varieties);
+  gaps are explicit rows (`is_gap`); `modal_price_filled` carries the last value forward for gaps
+  of ≤ 2 weeks, longer gaps stay NULL. Both refresh after every price ingestion run.
+- `v_volatility`: rolling 4-week std/mean, 1-week and 4-week % change.
+- `v_seasonality`: month × year average and index vs that year's average.
+- `v_rainfall_weekly`: weekly rain, normal and deviation per mandi.
+- Supabase's public API roles are revoked on all views (materialized views can't use RLS).
 
 ## 4. API endpoints (v1)
 
@@ -151,7 +169,7 @@ mandipulse/
 │   └── pyproject.toml
 ├── sql/
 │   └── views/
-├── notebooks/               # EDA only; never imported by app code
+├── notebooks/               # EDA only (eda.py, `# %%` cells); never imported by app code
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/           # Home, Explorer, Forecast, Analytics, Accuracy, Status

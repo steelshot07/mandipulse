@@ -50,8 +50,8 @@ Build one phase at a time. Each phase ends with acceptance checks that must pass
 ## Phase 3 — Cleaning + analytics (4–6 days) ← analytics milestone
 **Build**
 - SQL views: `v_prices_clean`, `v_prices_weekly`, `v_volatility`, `v_seasonality`.
-- `ingestion/imd_rainfall.py`: district daily rainfall + normals → `rainfall_daily`.
-- EDA notebook: volatility, seasonality, rainfall-lag correlation. Write 3–5 key findings.
+- `ingestion/imd_rainfall.py`: daily rainfall around each mandi (~55 km box) + 1991–2020 normals → `rainfall_daily`, `rainfall_normals`.
+- EDA (`notebooks/eda.py`, plain script; jupyter/matplotlib not added): volatility, seasonality, rainfall-lag correlation. Write 3–5 key findings.
 - API: `/prices`, `/analytics/*`, `/meta/*`.
 
 **Done when**

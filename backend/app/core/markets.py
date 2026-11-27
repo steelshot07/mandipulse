@@ -179,6 +179,28 @@ MARKETS: tuple[MarketConfig, ...] = (
 )
 
 
+# Approximate mandi locations (lat, lon in degrees), read off public maps. Used to pick the
+# IMD rainfall grid cells around each mandi; +/- a few km doesn't matter on a 0.25 deg grid.
+MARKET_COORDS: dict[str, tuple[float, float]] = {
+    "lasalgaon": (20.150, 74.233),
+    "lasalgaon-niphad": (20.080, 74.110),
+    "lasalgaon-vinchur": (20.112, 74.218),
+    "pimpalgaon-baswant": (20.167, 73.988),
+    "pimpalgaon-saykheda": (20.040, 73.990),
+    "nashik": (19.997, 73.790),
+    "manmad": (20.252, 74.437),
+    "mandsaur": (24.076, 75.069),
+    "bengaluru": (13.030, 77.540),
+    "kolar": (13.137, 78.129),
+    "chintamani": (13.401, 78.057),
+    "madanapalle": (13.551, 78.503),
+    "kalikiri": (13.633, 78.800),
+    "azadpur": (28.708, 77.176),
+    "agra": (27.177, 78.008),
+    "kolkata-bara-bazar": (22.585, 88.354),
+}
+
+
 def normalise(name: str) -> str:
     """Normalise a source name for matching: trim, collapse inner spaces, casefold."""
     return " ".join(name.split()).casefold()

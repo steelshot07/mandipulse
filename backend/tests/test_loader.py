@@ -1,9 +1,7 @@
 """Loader row handling (pure) plus end-to-end runs against Postgres (db-marked)."""
 
-import os
 from collections.abc import Iterator
 from datetime import date
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -93,7 +91,6 @@ def test_rows_before_since_are_skipped_silently() -> None:
 
 # --- End-to-end against a disposable Postgres (CI service container) ---
 
-TEST_DB = os.environ.get("TEST_DATABASE_URL")
 SINCE = date(2025, 11, 1)
 
 
@@ -114,26 +111,6 @@ class FakeSource:
         for r in self.records:
             if all(r.get(k) == v for k, v in filters.items()):
                 yield r
-
-
-@pytest.fixture
-def migrated_db(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
-    if not TEST_DB:
-        pytest.skip("TEST_DATABASE_URL not set")
-    from alembic.config import Config
-
-    from alembic import command
-    from app.core.config import get_settings
-
-    monkeypatch.setenv("DATABASE_URL", TEST_DB)
-    get_settings.cache_clear()
-    cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
-    command.upgrade(cfg, "head")
-    try:
-        yield get_settings().sqlalchemy_url
-    finally:
-        command.downgrade(cfg, "base")
-        get_settings.cache_clear()
 
 
 @pytest.mark.db

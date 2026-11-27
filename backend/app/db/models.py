@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -115,3 +116,27 @@ class QuarantineRow(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
     reason: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RainfallDaily(Base):
+    """Mean IMD gridded rainfall over a +/- 0.5 deg box around a mandi, per day."""
+
+    __tablename__ = "rainfall_daily"
+
+    market_id: Mapped[int] = mapped_column(ForeignKey("markets.id"), primary_key=True)
+    date: Mapped[date] = mapped_column(Date, primary_key=True)
+    rain_mm: Mapped[Decimal | None] = mapped_column(Numeric(7, 2))
+    source: Mapped[str] = mapped_column(String(16))  # imd_final | imd_realtime
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class RainfallNormal(Base):
+    """1991-2020 daily rainfall climatology for the same box, keyed by month*100 + day."""
+
+    __tablename__ = "rainfall_normals"
+
+    market_id: Mapped[int] = mapped_column(ForeignKey("markets.id"), primary_key=True)
+    month_day: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    normal_mm: Mapped[Decimal] = mapped_column(Numeric(7, 2))

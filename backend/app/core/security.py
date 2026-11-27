@@ -81,7 +81,9 @@ def install_security(app: FastAPI, limiter: RateLimiter) -> None:
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
-        code = {404: "not_found", 405: "method_not_allowed"}.get(exc.status_code, "http_error")
+        code = {400: "bad_request", 404: "not_found", 405: "method_not_allowed"}.get(
+            exc.status_code, "http_error"
+        )
         message = exc.detail if isinstance(exc.detail, str) else "Request failed."
         return JSONResponse(error_body(code, message), status_code=exc.status_code)
 

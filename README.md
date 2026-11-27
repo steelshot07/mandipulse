@@ -25,6 +25,9 @@ Check: `GET http://localhost:8000/health` → `{"status":"ok","db":"ok"}`
 alembic upgrade head              # create/upgrade tables
 python -m ingestion.backfill      # one-time history since 2019 (~2 min)
 python -m ingestion.run_daily     # latest 10 days; idempotent
+python -m ingestion.imd_rainfall backfill   # one-time: 1991-2020 normals + rainfall since 2019 (~1 GB, ~25 min)
+python -m ingestion.imd_rainfall recent     # last 21 days (weekly on GitHub Actions)
+python ../notebooks/eda.py        # print the numbers behind docs/Findings.md
 ```
 
 The daily job runs as an AWS Lambda in Mumbai at 20:00 IST, because data.gov.in only accepts

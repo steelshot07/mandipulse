@@ -22,7 +22,17 @@ Running log of decisions, gotchas and project state. Update at the end of every 
   - GitHub OIDC deploy verified 2026-11-27: `Deploy ingestion` ships code after CI on main.
   - **Still to do:** 3 consecutive scheduled runs (27, 28, 29 Nov at 20:00 IST). Check
     `ingestion_runs` or `/status/ingestion`.
-- **Next:** Phase 3 — cleaning views and analytics.
+- **Phase 3 (cleaning + analytics) — done 2026-11-27.**
+  - Migration `0002` adds materialized `v_prices_clean` (outlier flags) and `v_prices_weekly`
+    (full week calendar, gaps, ≤ 2-week fill). Both refresh after every price run (~9 s).
+    Also adds `v_volatility`, `v_seasonality`, `v_rainfall_weekly`, `rainfall_daily` and
+    `rainfall_normals`.
+  - Rainfall: 46k rows (16 mandis, 2019 → yesterday) + 1991–2020 normals. Weekly GitHub job
+    `rainfall.yml` (Mon 06:00 IST) hasn't run on GitHub yet.
+  - API: `/meta/commodities`, `/meta/markets`, `/prices`, `/analytics/{volatility,seasonality,rainfall-impact}`.
+  - Findings in `docs/Findings.md`.
+- **Next:** Phase 4 — baselines, LightGBM, backtest. Phase 2's 3-day check is still pending
+  (27–29 Nov).
 
 ## Decisions
 - **Price source is data.gov.in, not CEDA.** CEDA only has monthly data. Resource
@@ -54,6 +64,15 @@ Running log of decisions, gotchas and project state. Update at the end of every 
   the 10-day window is counted in `rows_quarantined` but not stored twice.
 - **`/status/ingestion` never shows the stored `error` text**, only the status. Errors can
   contain SQL or internals.
+- **New packages approved 2026-11-27:** numpy, scipy, pandas (runtime). jupyter/matplotlib
+  were *not* approved, so EDA is the plain script `notebooks/eda.py` (run from `backend/`).
+- **Rainfall is tied to a ~55 km box (±0.5°) around each mandi**, not district polygons.
+  Coordinates are in `MARKET_COORDS`.
+- **Weekly price = median of all varieties' non-outlier daily modal prices** (not one main
+  variety). Seasonal varieties like Unhali move it slightly, and that's real.
+- **`/prices` returns 200 with `stale: true`** rather than 503 for series with no price in more
+  than 7 days, because it serves history. Rules.md §5's 503 is meant for current-value
+  endpoints (forecast); revisit if needed.
 - **API access model:** public GETs are rate-limited per IP. Anything that writes, triggers
   a job or costs money needs `X-API-Key` (Rules.md §6).
 - **RLS is enabled with no policies on every table**, so Supabase's public Data API can't
@@ -90,7 +109,14 @@ Running log of decisions, gotchas and project state. Update at the end of every 
 - Stack updates that don't change secrets: `aws cloudformation deploy --profile mandipulse ...`
   without the NoEcho parameters keeps their previous values.
 
+- IMD: yearly final netCDF via POST `RF25=<year>` (empty body = not published); real-time
+  daily raw float32 (129×135, row-major lat, lon) via POST `rain=ddmmyyyy`. -999 = missing.
+- Supabase API roles (`anon`, `authenticated`) are revoked on all views. Materialized views
+  can't use RLS, so check this for every new view.
+
 ## Data notes
 - Lasalgaon (Vinchur) starts in May 2020. Madanapalle is sparse before 2023 (38 rows in
   2022, dense from 2023).
+- Madanapalle tomato: 120-week gap 2019–2022; train from 2023 only.
+- Mandsaur onion has many ₹100 placeholder reports. Its volatility is inflated.
 - Bengaluru onion is thin in 2025 (255 rows) during the Bangalore → Bengaluru rename.

@@ -28,6 +28,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.core.markets import (
     COMMODITIES,
+    MARKET_COORDS,
     MARKETS,
     CommodityConfig,
     MarketConfig,
@@ -37,6 +38,7 @@ from app.core.markets import (
 )
 from app.db.models import Commodity, IngestionRun, Market, RawPrice
 from app.db.session import get_engine
+from ingestion.analytics import refresh_price_views
 from ingestion.datagov_client import DataGovClient, Record, parse_source_date
 from ingestion.records import DataGovPriceRecord
 
@@ -164,6 +166,8 @@ def sync_reference_data(conn: Connection) -> tuple[dict[str, int], dict[str, int
             "market_name": m.market_name,
             "state": m.state,
             "district": m.districts[0],
+            "lat": MARKET_COORDS[m.slug][0],
+            "lon": MARKET_COORDS[m.slug][1],
         }
         stmt = insert(Market).values(**values)
         conn.execute(stmt.on_conflict_do_update(index_elements=["slug"], set_=values))
@@ -263,6 +267,14 @@ def run_ingestion(
             )
     except Exception as exc:
         _finish(engine, run_id, collector.stats, "failed", f"{type(exc).__name__}: {exc}"[:2000])
+        raise
+
+    try:
+        # Keep the cleaned/weekly views in step with raw_prices (a few seconds).
+        with engine.begin() as conn:
+            refresh_price_views(conn)
+    except Exception as exc:
+        _finish(engine, run_id, collector.stats, "failed", f"view refresh: {exc}"[:2000])
         raise
 
     _finish(engine, run_id, collector.stats, "success", None)
