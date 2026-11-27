@@ -69,6 +69,9 @@ succeeded**:
 - 30 s run time and 129 MB peak memory. That's about 30 × 30 s × 0.5 GB ≈ 450 GB-s a month,
   roughly 0.1% of Lambda's always-free 400,000 GB-s.
 - Logged as `success` in `ingestion_runs`. The schedule is live at 20:00 `Asia/Kolkata`.
+- The GitHub → AWS deploy (OIDC) first failed: GitHub now sends an ID-qualified token
+  subject (`repo:owner@id/name@id:...`) that the role's trust policy didn't match. I found the
+  real subject in CloudTrail, accepted both forms (main branch only), and the next deploy passed.
 <!-- Fill in after 3 consecutive scheduled runs: dates + rows inserted. -->
 
 **Takeaways.**

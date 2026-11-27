@@ -19,8 +19,9 @@ Running log of decisions, gotchas and project state. Update at the end of every 
   - Stack deployed 2026-11-27 with the `mandipulse` CLI profile (IAM user `mandipulse-admin`;
     deactivate its key when not changing the stack). The first Lambda run from Mumbai succeeded:
     26 rows inserted in 30 s.
-  - **Still to do:** verify the GitHub OIDC deploy (`Deploy ingestion` workflow) and 3
-    consecutive scheduled runs (from 27 Nov, 20:00 IST).
+  - GitHub OIDC deploy verified 2026-11-27: `Deploy ingestion` ships code after CI on main.
+  - **Still to do:** 3 consecutive scheduled runs (27, 28, 29 Nov at 20:00 IST). Check
+    `ingestion_runs` or `/status/ingestion`.
 - **Next:** Phase 3 — cleaning views and analytics.
 
 ## Decisions
